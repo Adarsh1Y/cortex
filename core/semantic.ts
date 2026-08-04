@@ -84,6 +84,46 @@ export interface ConsolidatedFact {
   category: string;
 }
 
+/** Simple text similarity using Jaccard index on words */
+function jaccardSimilarity(a: string, b: string): number {
+  const sa = new Set(a.toLowerCase().split(/\s+/).filter(Boolean));
+  const sb = new Set(b.toLowerCase().split(/\s+/).filter(Boolean));
+  if (sa.size === 0 && sb.size === 0) return 1;
+  const intersection = new Set([...sa].filter((x) => sb.has(x)));
+  const union = new Set([...sa, ...sb]);
+  return intersection.size / union.size;
+}
+
+/** Heuristic consolidation: dedup by text similarity without LLM */
+function heuristicConsolidate(facts: FactRow[]): ConsolidatedFact[] {
+  const threshold = 0.75;
+  const kept: ConsolidatedFact[] = [];
+  const used = new Set<number>();
+
+  for (const f of facts) {
+    if (used.has(f.id)) continue;
+    let bestMatch: ConsolidatedFact | null = null;
+    let bestScore = 0;
+    for (const k of kept) {
+      const score = jaccardSimilarity(f.text, k.text);
+      if (score > bestScore && score >= threshold) {
+        bestScore = score;
+        bestMatch = k;
+      }
+    }
+    if (bestMatch) {
+      if (bestMatch.text.length < f.text.length) {
+        bestMatch.text = f.text;
+        bestMatch.category = f.category;
+      }
+      used.add(f.id);
+    } else {
+      kept.push({ id: f.id, text: f.text, category: f.category });
+    }
+  }
+  return kept;
+}
+
 export async function consolidateFacts(
   brain: Brain,
   memory: Memory,
@@ -109,8 +149,16 @@ export async function consolidateFacts(
       );
     }
   } catch {
-    return { kept: 0, removed: 0 };
+    // LLM failed, will fall back to heuristic
   }
+
+  // Fallback: heuristic consolidation if LLM returned nothing
+  let heuristicConsolidated: ConsolidatedFact[] = [];
+  try {
+    heuristicConsolidated = heuristicConsolidate(facts);
+  } catch { /* ignore heuristic errors */ }
+
+  const fallbackConsolidated = consolidated.length > 0 ? consolidated : heuristicConsolidated;
 
   if (consolidated.length === 0) return { kept: 0, removed: 0 };
 

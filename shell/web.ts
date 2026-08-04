@@ -253,6 +253,17 @@ export function startWebServer(
         return json({ ...memory.stats(), reminders: reminders.list().length });
       }
 
+      if (path === "/api/health") {
+        const startTime = Date.now();
+        return json({
+          status: "ok",
+          uptime: process.uptime(),
+          memory: process.memoryUsage(),
+          brain: { engine: config.brain.engine, connected: true },
+          version: "1.0.0",
+        });
+      }
+
       if (path === "/api/facts" && req.method === "GET") {
         const q = url.searchParams.get("q") ?? "";
         return json(q ? memory.searchFacts(q, 30) : memory.listFacts(false, 200));

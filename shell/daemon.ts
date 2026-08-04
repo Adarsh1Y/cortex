@@ -13,8 +13,10 @@ import { ReminderEngine } from "@cortex/core/reminders";
 import { OpenCodeBrain } from "@cortex/core/brain";
 import { startWebServer } from "./web";
 import type { CortexConfig } from "@cortex/core";
-import { mkdirSync, writeFileSync, appendFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, writeFileSync, appendFileSync, unlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
+
+const MAX_LOG_SIZE = 1024 * 1024; // 1MB
 
 function pidPath(): string {
   return join(expandHome("~/.consciousness"), "daemon.pid");
@@ -24,7 +26,20 @@ function logPath(): string {
   return join(expandHome("~/.consciousness"), "daemon.log");
 }
 
+function rotateLogIfNeeded(): void {
+  const p = logPath();
+  try {
+    const st = statSync(p);
+    if (st.size > MAX_LOG_SIZE) {
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      const rotated = p.replace(".log", `-${ts}.log`);
+      import("node:fs").then((fs) => fs.renameSync(p, rotated));
+    }
+  } catch { /* log doesn't exist yet */ }
+}
+
 function log(msg: string): void {
+  rotateLogIfNeeded();
   const ts = new Date().toISOString();
   appendFileSync(logPath(), `[${ts}] ${msg}\n`);
 }
