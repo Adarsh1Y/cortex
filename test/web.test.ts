@@ -114,6 +114,48 @@ describe("web dashboard API", () => {
     expect(body.some((m: any) => m.content.includes("banana"))).toBe(true);
   });
 
+  test("reminders: add, list, cancel", async () => {
+    const add = await fetch(base + "/api/reminders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "in 5 minutes feed the cat" }),
+    });
+    expect(add.status).toBe(200);
+    const added = (await add.json()) as any;
+    expect(added.text).toBe("feed the cat");
+
+    const { body: list } = await getJson("/api/reminders");
+    expect(list.some((r: any) => r.id === added.id)).toBe(true);
+
+    const cancel = await post(`/api/reminders/${added.id}/cancel`);
+    expect(cancel.status).toBe(200);
+    const { body: after } = await getJson("/api/reminders");
+    expect(after.some((r: any) => r.id === added.id)).toBe(false);
+  });
+
+  test("reminders: unparseable time is a 400", async () => {
+    const add = await fetch(base + "/api/reminders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "sometime later maybe" }),
+    });
+    expect(add.status).toBe(400);
+  });
+
+  test("semantic endpoint without embeddings reports unavailable", async () => {
+    const { body } = await getJson("/api/semantic?q=space");
+    expect(body.error).toBeTruthy();
+  });
+
+  test("export endpoint returns a full bundle", async () => {
+    const r = await fetch(base + "/api/export");
+    expect(r.status).toBe(200);
+    const bundle = (await r.json()) as any;
+    expect(bundle.version).toBe(1);
+    expect(bundle.messages.some((m: any) => m.content.includes("blue banana"))).toBe(true);
+    expect(bundle.facts.length).toBeGreaterThanOrEqual(1);
+  });
+
   test("404 for unknown paths", async () => {
     const r = await fetch(base + "/api/nope");
     expect(r.status).toBe(404);

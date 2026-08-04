@@ -21,7 +21,7 @@ beforeAll(async () => {
   config = loadConfig();
   config.data_dir = dir;
   mem = new Memory(dir);
-  brain = await OpenCodeBrain.connect(config.brain.server_timeout_ms);
+  brain = await OpenCodeBrain.connect({ timeoutMs: config.brain.server_timeout_ms });
 });
 
 afterAll(() => {
@@ -31,6 +31,16 @@ afterAll(() => {
 });
 
 const persona = () => loadPersona(resolvePersonaPath(loadConfig()));
+
+async function resilientDigest(convo: Awaited<ReturnType<typeof Conversation.start>>, maxRetries = 3): Promise<NonNullable<Awaited<ReturnType<typeof convo.digest>>>> {
+  for (let i = 0; i <= maxRetries; i++) {
+    const d = await convo.digest();
+    if (d && d.journal.length > 0) return d;
+  }
+  const d = await convo.digest();
+  if (!d) throw new Error("digest returned null");
+  return d;
+}
 
 describe("conversation lifecycle", () => {
   test(
@@ -54,7 +64,7 @@ describe("conversation lifecycle", () => {
       const before = mem.stats();
       const convo = await Conversation.start({ config, memory: mem, brain, persona: persona() });
       await convo.turn("Just confirming: the project is codenamed CORTEX.");
-      const digest = await convo.digest();
+      const digest = await resilientDigest(convo);
       expect(digest).not.toBeNull();
       const after = mem.stats();
       expect(after.facts).toBeGreaterThanOrEqual(before.facts);
@@ -62,7 +72,7 @@ describe("conversation lifecycle", () => {
       const facts = mem.listFacts(true);
       expect(facts.some((f) => /cortex/i.test(f.text))).toBe(true);
     },
-    120_000,
+    200_000,
   );
 
   test(

@@ -2,8 +2,10 @@ import type { CortexConfig } from "./config";
 import type { Memory } from "./memory";
 import type { Persona } from "./persona";
 import { buildSystemPrompt, type PromptContext } from "./persona";
-import { buildRecallBlock } from "./recall";
+import { buildRecallBlock, buildSemanticRecallBlock } from "./recall";
 import type { Brain } from "./brain";
+import type { Embedder } from "./embeddings";
+import type { VectorStore } from "./vector";
 import { consolidateFacts, extractDigest, factsToContext, journalToContext, type SessionDigest } from "./semantic";
 
 export interface ConversationOptions {
@@ -11,6 +13,8 @@ export interface ConversationOptions {
   memory: Memory;
   brain: Brain;
   persona: Persona;
+  embedder?: Embedder;
+  vectors?: VectorStore;
 }
 
 export class Conversation {
@@ -39,14 +43,25 @@ export class Conversation {
     memory.addMessage(this.sessionId, "user", text);
 
     const preferences = memory.allPreferences();
-    const recallBlock = buildRecallBlock(memory, {
-      recallMessages: config.memory.recall_messages,
-      maxChars: config.memory.max_recall_chars,
-      excludeSessionId: this.sessionId,
-    });
-    const factsBlock = config.memory.semantic
-      ? factsToContext(memory.searchFacts(text), config.memory.max_fact_chars)
-      : "";
+    let recallBlock = "";
+    let factsBlock = "";
+
+    if (config.memory.semantic_recall && this.opts.embedder && this.opts.vectors) {
+      const semantic = await this.semanticRecall(text);
+      recallBlock = semantic.recall;
+      factsBlock = semantic.facts;
+    }
+
+    if (!recallBlock) {
+      recallBlock = buildRecallBlock(memory, {
+        recallMessages: config.memory.recall_messages,
+        maxChars: config.memory.max_recall_chars,
+        excludeSessionId: this.sessionId,
+      });
+    }
+    if (!factsBlock && config.memory.semantic) {
+      factsBlock = factsToContext(memory.searchFacts(text), config.memory.max_fact_chars);
+    }
     const journalBlock = config.memory.semantic
       ? journalToContext(memory.latestJournal(3))
       : "";
@@ -71,6 +86,55 @@ export class Conversation {
     return reply;
   }
 
+  /**
+   * Semantic recall: embed the user's message and pull the most similar facts
+   * and past messages. Falls back to keyword recall when the index is empty.
+   */
+  private async semanticRecall(text: string): Promise<{ recall: string; facts: string }> {
+    const { embedder, vectors, memory, config } = this.opts;
+    if (!embedder || !vectors) return { recall: "", facts: "" };
+    try {
+      const [q] = await embedder.embed([text]);
+      const factHits = vectors.searchFacts(q, 8);
+      const msgHits = vectors.searchMessages(
+        q,
+        config.memory.recall_messages,
+        this.currentMessageIds(),
+      );
+
+      let facts = "";
+      if (factHits.length > 0) {
+        const factRows = memory
+          .getFactsByIds(factHits.map((h) => h.id))
+          .filter((f) => f.active)
+          .sort((a, b) => {
+            const ha = factHits.find((h) => h.id === a.id)!.similarity;
+            const hb = factHits.find((h) => h.id === b.id)!.similarity;
+            return hb - ha;
+          });
+        facts = factsToContext(factRows, config.memory.max_fact_chars);
+      }
+
+      let recall = "";
+      if (msgHits.length > 0) {
+        const byId = new Map(memory.getMessagesByIds(msgHits.map((h) => h.id)).map((m) => [m.id, m]));
+        const ordered = msgHits
+          .map((h) => byId.get(h.id))
+          .filter((m): m is NonNullable<typeof m> => Boolean(m));
+        recall = buildSemanticRecallBlock(ordered, config.memory.max_recall_chars);
+      }
+      return { recall, facts };
+    } catch {
+      return { recall: "", facts: "" };
+    }
+  }
+
+  private currentMessageIds(): number[] {
+    return this.opts.memory
+      .getMessages(this.sessionId)
+      .map((m) => m.id);
+  }
+
   async clear(): Promise<number> {
     return this.opts.memory.resetSession(this.sessionId);
   }
@@ -93,11 +157,18 @@ export class Conversation {
     const digest = await extractDigest(brain, transcript);
     let learned = 0;
     for (const fact of digest.facts) {
-      memory.addFact(fact.text, fact.category, this.sessionId);
+      const id = memory.addFact(fact.text, fact.category, this.sessionId);
+      this.embedFact(id, fact.text);
       learned++;
     }
     if (digest.journal) {
       memory.addJournal(digest.journal, this.sessionId);
+    }
+
+    if (config.memory.embed_on_digest) {
+      for (const m of messages) {
+        this.embedMessage(m.id, m.content);
+      }
     }
 
     const total = memory.stats().facts;
@@ -105,5 +176,27 @@ export class Conversation {
       await consolidateFacts(brain, memory);
     }
     return digest;
+  }
+
+  private async embedFact(id: number, text: string): Promise<void> {
+    const { embedder, vectors } = this.opts;
+    if (!embedder || !vectors || !text.trim()) return;
+    try {
+      const [v] = await embedder.embed([text]);
+      vectors.upsertFact(id, v);
+    } catch {
+      // embedding is best-effort
+    }
+  }
+
+  private async embedMessage(id: number, content: string): Promise<void> {
+    const { embedder, vectors } = this.opts;
+    if (!embedder || !vectors || !content.trim()) return;
+    try {
+      const [v] = await embedder.embed([content]);
+      vectors.upsertMessage(id, v);
+    } catch {
+      // embedding is best-effort
+    }
   }
 }

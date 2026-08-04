@@ -1,4 +1,5 @@
 import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
+import type { PermissionPolicy } from "./permission";
 
 export interface PromptOptions {
   sessionId: string;
@@ -12,6 +13,15 @@ export interface Brain {
   prompt(opts: PromptOptions): Promise<string>;
   analyze(text: string, system: string): Promise<string>;
   close(): void;
+}
+
+export interface BrainOptions {
+  timeoutMs?: number;
+  /** Port for the local opencode server. Defaults to 0 (ephemeral) to avoid conflicts. */
+  port?: number;
+  permissionPolicy?: PermissionPolicy;
+  /** Called for permissions that the policy flags as "ask". Resolve true to allow. */
+  onPermissionAsk?: (perm: { type: string; pattern?: string | string[]; title: string }) => Promise<boolean>;
 }
 
 interface Collector {
@@ -30,11 +40,20 @@ export class OpenCodeBrain implements Brain {
     private client: OpencodeClient,
     private server: { url: string; close(): void },
     private timeoutMs: number,
+    private permissionPolicy?: PermissionPolicy,
+    private onPermissionAsk?: BrainOptions["onPermissionAsk"],
   ) {}
 
-  static async connect(timeoutMs = 60000): Promise<OpenCodeBrain> {
-    const { client, server } = await createOpencode({ timeout: timeoutMs });
-    const brain = new OpenCodeBrain(client, server, timeoutMs);
+  static async connect(opts: BrainOptions = {}): Promise<OpenCodeBrain> {
+    const timeoutMs = opts.timeoutMs ?? 60000;
+    const { client, server } = await createOpencode({ timeout: timeoutMs, port: opts.port ?? 0 });
+    const brain = new OpenCodeBrain(
+      client,
+      server,
+      timeoutMs,
+      opts.permissionPolicy,
+      opts.onPermissionAsk,
+    );
     brain.ensureStream();
     return brain;
   }
@@ -148,17 +167,38 @@ export class OpenCodeBrain implements Brain {
         col.reject(new Error("opencode session error"));
         break;
       }
-      case "permission.asked": {
-        const sessionID = event.properties?.sessionID;
+      case "permission.updated": {
+        const props = event.properties;
+        if (!props || typeof props !== "object") break;
+        const sessionID = props.sessionID;
+        const permissionID = props.id;
+        const type = props.type ?? "unknown";
+        const pattern = props.pattern as string | string[] | undefined;
+        const title = props.title ?? type;
         const col = this.collectors.get(sessionID);
-        if (!col) return;
-        void this.client.postSessionIdPermissionsPermissionId({
-          path: {
-            id: sessionID,
-            permissionID: event.properties.id,
-          },
-          body: { response: "reject" },
-        });
+        if (!col) break;
+
+        const decide = async (): Promise<void> => {
+          let response: "once" | "reject" = "reject";
+          if (this.permissionPolicy) {
+            const decision = this.permissionPolicy.decide({ id: permissionID, type, pattern, title, sessionID });
+            if (decision === "allow") {
+              response = "once";
+            } else if (decision === "ask" && this.onPermissionAsk) {
+              const ok = await this.onPermissionAsk({ type, pattern, title });
+              response = ok ? "once" : "reject";
+            }
+          }
+          try {
+            await this.client.postSessionIdPermissionsPermissionId({
+              path: { id: sessionID, permissionID },
+              body: { response },
+            });
+          } catch {
+            // responding is best-effort; a missing reply just times out the tool call
+          }
+        };
+        void decide();
         break;
       }
     }

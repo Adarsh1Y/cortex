@@ -22,9 +22,22 @@ export function buildRecallBlock(
 ): string {
   const recent = memory.recentMessages(opts.recallMessages, opts.excludeSessionId);
   if (recent.length === 0) return "";
-  let block = formatMessagesForRecall(recent);
-  if (block.length > opts.maxChars) {
-    block = block.slice(-opts.maxChars);
+  return formatRecallRows(recent, opts.maxChars);
+}
+
+/**
+ * Format an already-selected set of messages (e.g. top semantic hits) into a
+ * recall block, applying the same truncation rules as buildRecallBlock.
+ */
+export function buildSemanticRecallBlock(messages: MessageRow[], maxChars: number): string {
+  if (messages.length === 0) return "";
+  return formatRecallRows(messages, maxChars);
+}
+
+function formatRecallRows(messages: MessageRow[], maxChars: number): string {
+  let block = formatMessagesForRecall(messages);
+  if (block.length > maxChars) {
+    block = block.slice(-maxChars);
     block = `...(truncated)\n${block}`;
   }
   return block;

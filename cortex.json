@@ -8,7 +8,39 @@
     "episodic": true,
     "semantic": true,
     "recall_on_start": true,
-    "max_context_turns": 20
+    "max_context_turns": 20,
+    "semantic_recall": true,
+    "embed_on_digest": true
+  },
+  "embeddings": {
+    "enabled": true,
+    "engine": "transformers",
+    "model": "Xenova/all-MiniLM-L6-v2"
+  },
+  "reminders": {
+    "enabled": true,
+    "check_interval_ms": 15000,
+    "notify": "both"
+  },
+  "permissions": {
+    "auto_allow": ["read", "ls", "grep", "glob", "webfetch", "bash:read"],
+    "auto_deny": ["write", "edit"],
+    "ask": false
+  },
+  "notify": {
+    "enabled": true
+  },
+  "voice": {
+    "tts_engine": "off",
+    "stt_engine": "off"
+  },
+  "security": {
+    "encryption": false
+  },
+  "tui": {
+    "enabled": true,
+    "history_file": "~/.consciousness/history",
+    "max_history": 500
   },
   "proactive": {
     "enabled": true,

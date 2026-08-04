@@ -1,11 +1,16 @@
 import {
+  buildExportBundle,
+  createEmbedder,
   expandHome,
   loadConfig,
   loadPersona,
   Memory,
+  parseReminderWhen,
+  ReminderStore,
   resolvePersonaPath,
+  VectorStore,
 } from "@cortex/core";
-import type { CortexConfig } from "@cortex/core";
+import type { CortexConfig, Embedder } from "@cortex/core";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
@@ -70,6 +75,21 @@ const PAGE = `<!doctype html>
   </section>
 
   <section>
+    <h2>Semantic search</h2>
+    <input type="text" id="semantic-search" placeholder="search all memory by meaning…" />
+    <div id="semantic-results" class="mono"></div>
+  </section>
+
+  <section>
+    <h2>Reminders</h2>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input type="text" id="reminder-input" placeholder='e.g. "in 30 minutes water the plants" or "at 14:00 call mom"' />
+      <button onclick="addReminder()">add</button>
+    </div>
+    <table id="reminders-table"></table>
+  </section>
+
+  <section>
     <h2>Preferences</h2>
     <table id="prefs-table"></table>
   </section>
@@ -95,9 +115,50 @@ async function post(url) { await fetch(url, { method: 'POST' }); refresh(); }
 
 async function loadStats() {
   const s = await get('/api/stats');
-  const items = [['sessions', s.sessions], ['messages', s.messages], ['facts', s.facts], ['journal', s.journal], ['preferences', s.preferences]];
+  const items = [['sessions', s.sessions], ['messages', s.messages], ['facts', s.facts], ['journal', s.journal], ['preferences', s.preferences], ['reminders', s.reminders]];
   document.getElementById('stats').innerHTML = items.map(([l, n]) =>
     \`<div class="card"><div class="num">\${n}</div><div class="lbl">\${l}</div></div>\`).join('');
+}
+
+async function loadReminders() {
+  const rows = await get('/api/reminders');
+  if (!rows.length) {
+    document.getElementById('reminders-table').innerHTML = '<tr><td class="mono">no pending reminders</td></tr>';
+    return;
+  }
+  document.getElementById('reminders-table').innerHTML = \`<tr><th>id</th><th>due</th><th>text</th><th></th></tr>\` +
+    rows.map(r => \`<tr><td>\${r.id}</td><td class="mono">\${when(r.due_at)}</td><td>\${esc(r.text)}\${r.repeat ? ' <span class="tag">' + esc(r.repeat) + '</span>' : ''}</td>
+      <td><button onclick="cancelReminder(\${r.id})">cancel</button></td></tr>\`).join('');
+}
+
+async function addReminder() {
+  const text = document.getElementById('reminder-input').value.trim();
+  if (!text) return;
+  await fetch('/api/reminders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+  document.getElementById('reminder-input').value = '';
+  refresh();
+}
+
+async function cancelReminder(id) {
+  await fetch('/api/reminders/' + id + '/cancel', { method: 'POST' });
+  refresh();
+}
+
+async function loadSemantic() {
+  const q = document.getElementById('semantic-search').value.trim();
+  const el = document.getElementById('semantic-results');
+  if (!q) { el.textContent = ''; return; }
+  const data = await get('/api/semantic?q=' + encodeURIComponent(q));
+  if (data.error) { el.textContent = data.error; return; }
+  let out = '';
+  if (data.facts && data.facts.length) {
+    out += 'FACTS\n' + data.facts.map(f => \`  [\${(f.similarity * 100).toFixed(0)}%] \${f.category}: \${esc(f.text)}\`).join('\n') + '\n';
+  }
+  if (data.messages && data.messages.length) {
+    out += 'MESSAGES\n' + data.messages.map(m => \`  [\${(m.similarity * 100).toFixed(0)}%] \${m.role}: \${esc(m.content)}\`).join('\n');
+  }
+  if (!out) out = 'no matches';
+  el.textContent = out;
 }
 
 async function loadFacts() {
@@ -157,16 +218,25 @@ async function loadMessages(sessionId) {
     \`<tr><th>when</th><th>role</th><th>content</th></tr>\` + rows;
 }
 
-function refresh() { loadStats(); loadFacts(); loadJournal(); loadPrefs(); loadSessions(); }
+function refresh() { loadStats(); loadFacts(); loadJournal(); loadPrefs(); loadSessions(); loadReminders(); }
 document.getElementById('fact-search').addEventListener('input', loadFacts);
 document.getElementById('session-filter').addEventListener('input', loadSessions);
+document.getElementById('semantic-search').addEventListener('input', loadSemantic);
+document.getElementById('reminder-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addReminder(); });
 refresh();
+setInterval(refresh, 30000);
 </script>
 </body>
 </html>`;
 
-export function startWebServer(config: CortexConfig, memory: Memory, dataDir: string): { port: number; close(): void } {
+export function startWebServer(
+  config: CortexConfig,
+  memory: Memory,
+  dataDir: string,
+  opts: { vectors?: VectorStore; embedder?: Embedder } = {},
+): { port: number; close(): void } {
   const port = config.web.port;
+  const reminders = new ReminderStore(memory.database);
   const server = Bun.serve({
     port,
     async fetch(req) {
@@ -179,7 +249,9 @@ export function startWebServer(config: CortexConfig, memory: Memory, dataDir: st
 
       if (path === "/") return new Response(PAGE, { headers: { "content-type": "text/html" } });
 
-      if (path === "/api/stats") return json(memory.stats());
+      if (path === "/api/stats") {
+        return json({ ...memory.stats(), reminders: reminders.list().length });
+      }
 
       if (path === "/api/facts" && req.method === "GET") {
         const q = url.searchParams.get("q") ?? "";
@@ -201,6 +273,45 @@ export function startWebServer(config: CortexConfig, memory: Memory, dataDir: st
       }
 
       if (path === "/api/preferences") return json(memory.allPreferences());
+
+      if (path === "/api/reminders" && req.method === "GET") {
+        return json(reminders.list());
+      }
+      if (path === "/api/reminders" && req.method === "POST") {
+        const body = (await req.json()) as { text?: string };
+        const text = (body.text ?? "").trim();
+        if (!text) return json({ error: "missing text" }, 400);
+        const parsed = parseReminderWhen(text);
+        if (!parsed) {
+          return json({ error: "could not parse a time. try: in 30 minutes <text> / at 14:00 <text>" }, 400);
+        }
+        const id = reminders.add(parsed.text, parsed.dueAt);
+        return json({ id, due_at: parsed.dueAt, text: parsed.text });
+      }
+      const reminderMatch = path.match(/^\/api\/reminders\/(\d+)\/cancel$/);
+      if (reminderMatch && req.method === "POST") {
+        reminders.cancel(Number(reminderMatch[1]));
+        return json({ ok: true });
+      }
+
+      if (path === "/api/semantic") {
+        const q = url.searchParams.get("q") ?? "";
+        if (!opts.vectors || !opts.embedder || !q) return json({ error: "embeddings unavailable", facts: [], messages: [] });
+        if (!(await opts.embedder.ready())) return json({ error: "embedding engine not ready", facts: [], messages: [] });
+        const [vec] = await opts.embedder.embed([q]);
+        const factHits = opts.vectors.searchFacts(vec, 8);
+        const msgHits = opts.vectors.searchMessages(vec, 8);
+        const facts = memory.getFactsByIds(factHits.map((h) => h.id)).map((f, i) => ({ ...f, similarity: factHits[i].similarity }));
+        const messages = memory.getMessagesByIds(msgHits.map((h) => h.id)).map((m, i) => ({ ...m, similarity: msgHits[i].similarity }));
+        return json({ facts, messages });
+      }
+
+      if (path === "/api/export") {
+        const bundle = buildExportBundle(memory, { vectors: opts.vectors });
+        return new Response(JSON.stringify(bundle, null, 2), {
+          headers: { "content-type": "application/json", "content-disposition": `attachment; filename="cortex-export-${Date.now()}.json"` },
+        });
+      }
 
       if (path === "/api/sessions") {
         const sessions = memory
@@ -238,8 +349,12 @@ if (import.meta.main) {
   void persona;
   const dataDir = expandHome(config.data_dir);
   const memory = new Memory(dataDir);
-  const server = startWebServer(config, memory, dataDir);
+  const vectors = new VectorStore(memory.database);
+  const embedder = config.embeddings.enabled ? createEmbedder({ config }) : null;
+  if (embedder) void embedder.ready();
+  const server = startWebServer(config, memory, dataDir, { vectors, embedder: embedder ?? undefined });
   const shutdown = () => {
+    embedder?.close();
     memory.close();
     server.close();
     process.exit(0);

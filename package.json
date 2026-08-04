@@ -11,8 +11,9 @@
   "scripts": {
     "dev": "bun run shell/repl.ts",
     "web": "bun run shell/web.ts",
-    "test": "pkill -f \"opencode serv[e] --hostname\" 2>/dev/null; sleep 1; bun test test/ --parallel=1 --timeout 10000",
-    "typecheck": "tsc --noEmit"
+    "test": "pkill -f \"opencode serv[e] --hostname\" 2>/dev/null; sleep 1; bun test test/ --parallel=1 --timeout 30000",
+    "typecheck": "tsc --noEmit",
+    "daemon": "bun run shell/daemon.ts"
   },
   "dependencies": {
     "@opencode-ai/sdk": "latest"

@@ -17,8 +17,14 @@ describe("repl shell end-to-end", () => {
         JSON.stringify({
           data_dir: join(dir, "data"),
           brain: { engine: "opencode" },
-          memory: { episodic: true, semantic: true },
+          memory: { episodic: true, semantic: true, semantic_recall: false, embed_on_digest: false },
+          embeddings: { enabled: false, engine: "off" },
           proactive: { enabled: false },
+          reminders: { enabled: false },
+          notify: { enabled: false },
+          voice: { tts_engine: "off", stt_engine: "off" },
+          permissions: { auto_allow: ["read", "ls", "grep", "glob", "webfetch", "bash:read"], auto_deny: ["write", "edit"], ask: false },
+          tui: { enabled: true, history_file: join(dir, "history"), max_history: 50 },
           shell: { prompt: "you > ", welcome_message: true, colors: false },
         }),
       );

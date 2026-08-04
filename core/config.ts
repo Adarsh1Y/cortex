@@ -5,9 +5,12 @@ import { dirname, join, resolve } from "node:path";
 export interface CortexConfig {
   data_dir: string;
   brain: {
-    engine: "opencode" | string;
+    engine: "opencode" | "openai" | "anthropic" | "ollama" | "mock" | string;
     model: string;
     server_timeout_ms: number;
+    base_url?: string;
+    api_key?: string;
+    ollama_url?: string;
   };
   memory: {
     episodic: boolean;
@@ -16,6 +19,49 @@ export interface CortexConfig {
     recall_messages: number;
     max_recall_chars: number;
     max_fact_chars: number;
+    semantic_recall: boolean;
+    embed_on_digest: boolean;
+  };
+  embeddings: {
+    enabled: boolean;
+    engine: "transformers" | "ollama" | "openai" | "off";
+    model: string;
+    ollama_url: string;
+    openai_base_url: string;
+    openai_api_key?: string;
+    openai_model: string;
+    batch_size: number;
+  };
+  reminders: {
+    enabled: boolean;
+    check_interval_ms: number;
+    notify: "terminal" | "desktop" | "both";
+  };
+  permissions: {
+    auto_allow: string[];
+    auto_deny: string[];
+    ask: boolean;
+  };
+  notify: {
+    enabled: boolean;
+    command?: string;
+  };
+  voice: {
+    tts_engine: "off" | "auto" | "espeak" | "edge-tts" | "command";
+    tts_command?: string;
+    stt_engine: "off" | "openai" | "command";
+    stt_command?: string;
+    openai_api_key?: string;
+  };
+  security: {
+    encryption: boolean;
+    keyfile?: string;
+    key_env?: string;
+  };
+  tui: {
+    enabled: boolean;
+    history_file: string;
+    max_history: number;
   };
   proactive: {
     enabled: boolean;
@@ -41,6 +87,9 @@ const DEFAULTS: CortexConfig = {
     engine: "opencode",
     model: "inherit",
     server_timeout_ms: 60000,
+    base_url: "https://api.openai.com/v1",
+    api_key: "",
+    ollama_url: "http://127.0.0.1:11434",
   },
   memory: {
     episodic: true,
@@ -49,6 +98,49 @@ const DEFAULTS: CortexConfig = {
     recall_messages: 40,
     max_recall_chars: 4000,
     max_fact_chars: 1500,
+    semantic_recall: true,
+    embed_on_digest: true,
+  },
+  embeddings: {
+    enabled: true,
+    engine: "transformers",
+    model: "Xenova/all-MiniLM-L6-v2",
+    ollama_url: "http://127.0.0.1:11434",
+    openai_base_url: "https://api.openai.com/v1",
+    openai_api_key: "",
+    openai_model: "text-embedding-3-small",
+    batch_size: 16,
+  },
+  reminders: {
+    enabled: true,
+    check_interval_ms: 15_000,
+    notify: "both",
+  },
+  permissions: {
+    auto_allow: [],
+    auto_deny: [],
+    ask: false,
+  },
+  notify: {
+    enabled: true,
+    command: "",
+  },
+  voice: {
+    tts_engine: "off",
+    tts_command: "",
+    stt_engine: "off",
+    stt_command: "",
+    openai_api_key: "",
+  },
+  security: {
+    encryption: false,
+    keyfile: "~/.consciousness/.cortex-key",
+    key_env: "CORTEX_KEY",
+  },
+  tui: {
+    enabled: true,
+    history_file: "~/.consciousness/history",
+    max_history: 500,
   },
   proactive: {
     enabled: true,
@@ -100,6 +192,9 @@ export function resolvePersonaPath(config: CortexConfig): string {
 }
 
 function deepMerge<T>(base: T, override: unknown): T {
+  if (Array.isArray(base) || Array.isArray(override)) {
+    return (override ?? base) as T;
+  }
   if (typeof base !== "object" || base === null) return (override as T) ?? base;
   const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
   if (typeof override === "object" && override !== null) {
