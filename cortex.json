@@ -10,7 +10,10 @@
     "recall_on_start": true,
     "max_context_turns": 20,
     "semantic_recall": true,
-    "embed_on_digest": true
+    "embed_on_digest": true,
+    "fact_ttl_ms": null,
+    "compress_after_days": 30,
+    "max_session_messages": 200
   },
   "embeddings": {
     "enabled": true,

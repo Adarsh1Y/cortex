@@ -32,6 +32,8 @@ export {
   parseJsonObject,
   factsToContext,
   journalToContext,
+  cleanupExpiredFacts,
+  compressOldSessions,
 } from "./semantic";
 export type { ExtractedFact, SessionDigest, ConsolidatedFact } from "./semantic";
 export { ProactiveEngine } from "./proactive";

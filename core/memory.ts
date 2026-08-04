@@ -27,6 +27,7 @@ export interface FactRow {
   created_at: number;
   updated_at: number;
   active: number;
+  expires_at: number | null;
 }
 
 export interface JournalRow {
@@ -70,14 +71,16 @@ export class Memory {
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        compressed_summary TEXT
       );
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
         role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
         content TEXT NOT NULL,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        summarized INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
       CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
@@ -93,10 +96,12 @@ export class Memory {
         source_session TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        active INTEGER NOT NULL DEFAULT 1
+        active INTEGER NOT NULL DEFAULT 1,
+        expires_at INTEGER
       );
       CREATE INDEX IF NOT EXISTS idx_facts_category ON facts(category);
       CREATE INDEX IF NOT EXISTS idx_facts_active ON facts(active);
+      CREATE INDEX IF NOT EXISTS idx_facts_expires ON facts(expires_at);
       CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(fact_id, text, tokenize='porter');
       CREATE TABLE IF NOT EXISTS journal (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -294,14 +299,14 @@ export class Memory {
 
   // ---------- facts (semantic memory) ----------
 
-  addFact(text: string, category = "fact", sourceSession?: string): number {
+  addFact(text: string, category = "fact", sourceSession?: string, expiresAt?: number): number {
     const now = Date.now();
     const stored = this.enc(text);
     const res = this.db
       .query(
-        "INSERT INTO facts (category, text, source_session, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO facts (category, text, source_session, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
       )
-      .run(category, stored, sourceSession ?? null, now, now);
+      .run(category, stored, sourceSession ?? null, now, now, expiresAt ?? null);
     const id = Number(res.lastInsertRowid);
     if (!this.cipher) {
       this.db.query("INSERT INTO facts_fts (fact_id, text) VALUES (?, ?)").run(id, stored);
@@ -415,6 +420,64 @@ export class Memory {
       facts: count("facts"),
       journal: count("journal"),
     };
+  }
+
+  /** Compress old messages in a session into a summary. */
+  compressSession(sessionId: string, summary: string): number {
+    const res = this.db
+      .query("UPDATE messages SET summarized = 1 WHERE session_id = ?")
+      .run(sessionId);
+    this.db
+      .query("UPDATE sessions SET compressed_summary = ? WHERE id = ?")
+      .run(summary, sessionId);
+    return Number(res.changes);
+  }
+
+  /** Get sessions that are candidates for compression (older than threshold, not yet compressed). */
+  getCompressibleSessions(olderThanMs: number, limit = 10): SessionRow[] {
+    const threshold = Date.now() - olderThanMs;
+    return this.db
+      .query(
+        "SELECT id, title, created_at FROM sessions WHERE created_at < ? AND (compressed_summary IS NULL OR compressed_summary = '') ORDER BY created_at ASC LIMIT ?",
+      )
+      .all(threshold, limit) as SessionRow[];
+  }
+
+  /** Get messages for a session that haven't been summarized yet. */
+  getUnsummarizedMessages(sessionId: string): MessageRow[] {
+    return this.db
+      .query(
+        "SELECT * FROM messages WHERE session_id = ? AND summarized = 0 ORDER BY id ASC",
+      )
+      .all(sessionId) as MessageRow[];
+  }
+
+  /** Set fact expiration (TTL). Pass null to remove expiration. */
+  setFactExpiresAt(id: number, expiresAt: number | null): void {
+    this.db
+      .query("UPDATE facts SET expires_at = ?, updated_at = ? WHERE id = ?")
+      .run(expiresAt, Date.now(), id);
+  }
+
+  /** Remove expired facts (deactivate them). Returns count of deactivated facts. */
+  cleanupExpiredFacts(): number {
+    const now = Date.now();
+    const res = this.db
+      .query(
+        "UPDATE facts SET active = 0, updated_at = ? WHERE expires_at IS NOT NULL AND expires_at < ? AND active = 1",
+      )
+      .run(now, now);
+    return Number(res.changes);
+  }
+
+  /** Get all active facts with expiration info. */
+  getExpiringFacts(limit = 100): FactRow[] {
+    const rows = this.db
+      .query(
+        "SELECT * FROM facts WHERE active = 1 AND expires_at IS NOT NULL ORDER BY expires_at ASC LIMIT ?",
+      )
+      .all(limit) as FactRow[];
+    return rows.map((f) => ({ ...f, text: this.dec(f.text) }));
   }
 
   close(): void {

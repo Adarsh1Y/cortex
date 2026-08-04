@@ -21,6 +21,9 @@ export interface CortexConfig {
     max_fact_chars: number;
     semantic_recall: boolean;
     embed_on_digest: boolean;
+    fact_ttl_ms: number | null;
+    compress_after_days: number;
+    max_session_messages: number;
   };
   embeddings: {
     enabled: boolean;
@@ -100,6 +103,9 @@ const DEFAULTS: CortexConfig = {
     max_fact_chars: 1500,
     semantic_recall: true,
     embed_on_digest: true,
+    fact_ttl_ms: null,
+    compress_after_days: 30,
+    max_session_messages: 200,
   },
   embeddings: {
     enabled: true,

@@ -13,6 +13,8 @@ import {
   backupMemory,
   colors,
   consolidateFacts,
+  cleanupExpiredFacts,
+  compressOldSessions,
   createBrain,
   createEmbedder,
   expandHome,
@@ -213,6 +215,10 @@ async function main(): Promise<void> {
     },
   });
   reminders.start();
+
+  // Run memory maintenance on startup
+  void cleanupExpiredFacts(memory);
+  void compressOldSessions(memory, brain, config.memory.compress_after_days, config.memory.max_session_messages);
 
   const convo = await Conversation.start({
     config,

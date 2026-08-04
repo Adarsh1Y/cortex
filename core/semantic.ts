@@ -200,3 +200,45 @@ export function journalToContext(journal: JournalRow[], maxEntries = 3): string 
     })
     .join("\n");
 }
+
+/** Remove facts that have expired based on TTL. Returns count of deactivated facts. */
+export function cleanupExpiredFacts(memory: Memory): number {
+  return memory.cleanupExpiredFacts();
+}
+
+/** Compress old messages in sessions that exceed the message limit. Returns count of compressed sessions. */
+export async function compressOldSessions(
+  memory: Memory,
+  brain: Brain,
+  maxDays: number,
+  maxMessages: number,
+): Promise<number> {
+  const compressible = memory.getCompressibleSessions(maxDays * 24 * 60 * 60 * 1000);
+  let compressed = 0;
+  
+  for (const session of compressible) {
+    const messages = memory.getUnsummarizedMessages(session.id);
+    if (messages.length <= maxMessages) continue;
+    
+    // Generate summary of the session
+    const transcript = messages
+      .map((m) => `${m.role}: ${m.content}`)
+      .join("\n");
+    
+    try {
+      const summary = await brain.analyze(
+        transcript,
+        "Provide a concise summary of this conversation in 2-3 sentences.",
+      );
+      
+      if (summary && summary.trim()) {
+        memory.compressSession(session.id, summary.trim());
+        compressed++;
+      }
+    } catch {
+      // If summarization fails, skip this session
+    }
+  }
+  
+  return compressed;
+}

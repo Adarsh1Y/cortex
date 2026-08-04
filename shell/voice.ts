@@ -17,7 +17,7 @@ import { ProactiveEngine } from "@cortex/core/proactive";
 import { ReminderEngine } from "@cortex/core/reminders";
 import { Conversation } from "@cortex/core";
 import type { CortexConfig } from "@cortex/core";
-import { mkdirSync, writeFileSync, appendFileSync, unlinkSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, appendFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 const VOICE_DIR = join(expandHome("~/.consciousness"), "voice");
@@ -47,21 +47,74 @@ function resolveUserName(): string {
   );
 }
 
-function recordAudio(durationMs: number, outPath: string): Promise<boolean> {
+function recordAudioToFile(audioFile: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const proc = Bun.spawn([
-      "ffmpeg",
+    const args = [
       "-f", "alsa",
       "-i", "default",
-      "-t", String(durationMs / 1000),
-      "-ac", "1",
+      "-c", "1",
       "-ar", "16000",
-      "-c:a", "pcm_s16le",
-      "-y",
-      outPath,
-    ], { stdout: "ignore", stderr: "ignore" });
+      "-y", audioFile,
+    ];
+    const proc = Bun.spawn(["ffmpeg", ...args], { stdout: "ignore", stderr: "ignore" });
     proc.exited.then((code) => resolve(code === 0));
   });
+}
+
+function waitForSpeech(audioFile: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const args = [
+      "-i", audioFile,
+      "-af", "silencedetect=noise=0.001:duration=1.5:start_duration=0.5",
+      "-f", "null",
+      "-y",
+    ];
+    const proc = Bun.spawn(["ffmpeg", ...args], { stdout: "ignore", stderr: "pipe" });
+    proc.stderr?.pipeTo(new WritableStream({
+      write(chunk) {
+        const output = new TextDecoder().decode(chunk);
+        const match = output.match(/silencedetect: start:\s+([\d.]+)/);
+        if (match) {
+          resolve(true);
+          proc.kill();
+        }
+      },
+      close() {}
+    }));
+    proc.exited.then(() => resolve(false));
+  });
+}
+
+async function recordUntilSpeech(filePath: string, timeoutMs = 15_000): Promise<boolean> {
+  const start = Date.now();
+  let hasSpeech = false;
+
+  const timeoutPromise = new Promise<boolean>((_, reject) => {
+    setTimeout(() => reject(new Error("timeout")), timeoutMs);
+  });
+
+  const recordingPromise = new Promise<boolean>(async (resolve) => {
+    while (!hasSpeech) {
+      if (Date.now() - start > timeoutMs) {
+        resolve(false);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      const stt = await waitForSpeech(filePath);
+      if (stt) {
+        hasSpeech = true;
+        resolve(true);
+      }
+    }
+  });
+
+  try {
+    await recordingPromise;
+    return true;
+  } catch {
+    try { await recordAudioToFile(filePath); } catch { /* ignore */ }
+    return false;
+  }
 }
 
 async function voiceLoop(): Promise<void> {
@@ -151,11 +204,10 @@ async function voiceLoop(): Promise<void> {
 
   while (running) {
     const tmpWav = join(VOICE_DIR, `input-${Date.now()}.wav`);
-    const listenDuration = 5000;
 
-    const recorded = await recordAudio(listenDuration, tmpWav);
+    const recorded = await recordUntilSpeech(tmpWav, 15_000);
     if (!recorded) {
-      log("recording failed, retrying...");
+      log("no speech detected or recording failed, retrying...");
       continue;
     }
 

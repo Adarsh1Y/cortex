@@ -31,6 +31,9 @@ Phases 1–3 complete:
 - [x] Voice assistant mode — continuous listen-and-respond loop (`bun run voice`)
 - [x] Daemon mode — headless background process with web dashboard, proactive voice, and reminders (`bun run daemon`)
 - [x] Memory ops — JSON export/import, SQLite backup, optional AES-256-GCM encryption at rest
+- [x] Memory compression — old sessions auto-summarized into compact digests
+- [x] Fact TTL — facts can expire and be automatically deactivated
+- [x] Session compression — sessions exceeding message limits are compressed into summaries
 
 ## Installation
 
@@ -182,7 +185,10 @@ Edit `cortex.json` with your preferences:
     "max_recall_chars": 4000,
     "max_fact_chars": 1500,
     "semantic_recall": true,
-    "embed_on_digest": true
+    "embed_on_digest": true,
+    "fact_ttl_ms": null,
+    "compress_after_days": 30,
+    "max_session_messages": 200
   },
   "embeddings": {
     "enabled": true,
