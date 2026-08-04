@@ -168,6 +168,7 @@ async function main(): Promise<void> {
     memory.close();
   }
   stdout.write("  offline.\n");
+  process.exit(0);
 }
 
 process.on("SIGINT", () => {
