@@ -191,7 +191,10 @@ async function main(): Promise<void> {
     memory,
     persona,
     userName,
-    onSpeak: deliver,
+    onSpeak: (text: string) => {
+      deliver(text);
+      if (ttsOn) void speak(text.replace(/\x1b\[[0-9;]*m/g, ""), config.voice);
+    },
   });
   proactive.start();
 
@@ -203,6 +206,7 @@ async function main(): Promise<void> {
       const line = `⏰ ${reminder.text}`;
       if (config.reminders.notify !== "desktop") deliver(line);
       if (config.reminders.notify !== "terminal") notifyOn("Reminder", reminder.text);
+      if (ttsOn) void speak(line, config.voice);
       memory.addJournal(`I reminded ${userName} to ${reminder.text}`);
     },
   });

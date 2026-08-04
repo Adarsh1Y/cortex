@@ -13,7 +13,8 @@
     "web": "bun run shell/web.ts",
     "test": "pkill -f \"opencode serv[e] --hostname\" 2>/dev/null; sleep 1; bun test test/ --parallel=1 --timeout 30000",
     "typecheck": "tsc --noEmit",
-    "daemon": "bun run shell/daemon.ts"
+    "daemon": "bun run shell/daemon.ts",
+    "voice": "bun run shell/voice.ts"
   },
   "dependencies": {
     "@opencode-ai/sdk": "latest"

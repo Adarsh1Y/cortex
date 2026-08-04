@@ -6,6 +6,7 @@ import {
   Memory,
   resolvePersonaPath,
   VectorStore,
+  speak,
 } from "@cortex/core";
 import { ProactiveEngine } from "@cortex/core/proactive";
 import { ReminderEngine } from "@cortex/core/reminders";
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
     userName,
     onSpeak: (text: string) => {
       log(`proactive: ${text}`);
+      void speak(text, config.voice);
     },
   });
   proactive.start();
@@ -87,6 +89,7 @@ async function main(): Promise<void> {
     checkIntervalMs: config.reminders.check_interval_ms,
     onFire: (reminder) => {
       log(`reminder fired: ${reminder.text}`);
+      void speak(`Reminder: ${reminder.text}`, config.voice);
     },
   });
   reminders.start();

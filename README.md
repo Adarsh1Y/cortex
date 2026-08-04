@@ -28,6 +28,8 @@ Phases 1–3 complete:
 - [x] Rich TUI — raw-mode line editor, history, arrows/editing keys, Ctrl-R reverse search, tab completion
 - [x] Desktop notifications (notify-send / osascript / PowerShell)
 - [x] Voice — pluggable TTS/STT engines with auto-detection
+- [x] Voice assistant mode — continuous listen-and-respond loop (`bun run voice`)
+- [x] Daemon mode — headless background process with web dashboard, proactive voice, and reminders (`bun run daemon`)
 - [x] Memory ops — JSON export/import, SQLite backup, optional AES-256-GCM encryption at rest
 
 ## Architecture
@@ -54,9 +56,20 @@ User <-> Shell (TUI) <-> Consciousness Core <-> Brain (pluggable)
 
 ```bash
 bun install
-bun run dev        # shell
-bun run web        # dashboard (set web.enabled: true in cortex.json to autostart)
+bun run dev        # interactive TUI shell
+bun run web        # dashboard only (set web.enabled: true in cortex.json)
+bun run daemon     # background daemon: web + proactive voice + reminders
+bun run voice      # voice assistant mode: listen, speak, respond
 ```
+
+### Running modes
+
+| Mode | What it does |
+|------|-------------|
+| `dev` | Interactive TUI with streaming markdown, commands, and TTS on replies |
+| `web` | Dashboard only at `127.0.0.1:4040` — view memory, search, manage reminders |
+| `daemon` | Headless background process — web dashboard, proactive voice (speaks when idle or reminded), and scheduled reminders. Logs to `~/.consciousness/daemon.log`, PID file at `~/.consciousness/daemon.pid`. Press Ctrl+C or `kill $(cat ~/.consciousness/daemon.pid)` to stop. |
+| `voice` | Continuous voice loop — listens via microphone (ffmpeg + ALSA), transcribes with STT, responds through the brain, and speaks replies via TTS. Press Ctrl+C to stop. |
 
 ## Commands
 
