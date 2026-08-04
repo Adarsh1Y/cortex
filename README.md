@@ -4,13 +4,13 @@ A consciousness layer for CLI AI agents. CORTEX talks to you from the terminal, 
 
 ## Status
 
-MVP in progress. Current scope:
+MVP complete. Current scope:
 
 - [x] GitHub repo + SSH auth
-- [ ] Brain adapter (opencode SDK)
-- [ ] Episodic memory (full conversation recall)
-- [ ] Persona / voice injection
-- [ ] REPL shell
+- [x] Brain adapter (opencode SDK)
+- [x] Episodic memory (full conversation recall)
+- [x] Persona / voice injection
+- [x] REPL shell
 
 ## Architecture
 

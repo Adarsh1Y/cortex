@@ -9,7 +9,7 @@
     "shell"
   ],
   "scripts": {
-    "dev": "bun run shell/src/repl.ts",
+    "dev": "bun run shell/repl.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
