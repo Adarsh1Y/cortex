@@ -32,6 +32,210 @@ Phases 1–3 complete:
 - [x] Daemon mode — headless background process with web dashboard, proactive voice, and reminders (`bun run daemon`)
 - [x] Memory ops — JSON export/import, SQLite backup, optional AES-256-GCM encryption at rest
 
+## Installation
+
+### Prerequisites
+
+- **Bun** (>= 1.3.14): JavaScript runtime
+- **Node.js** (>= 18): For optional additional features
+
+Install Bun:
+
+```bash
+# macOS
+curl -fsSL https://bun.sh/install | bash
+
+# Linux (Debian/Ubuntu)
+curl -fsSL https://bun.sh/install | bash -s -- --yes
+
+# Verify installation
+bun --version
+```
+
+### Clone CORTEX
+
+```bash
+git clone https://github.com/Adarsh1Y/cortex.git
+cd cortex
+bun install
+```
+
+### Quick Start Commands
+
+1. **Initialize CORTEX**:
+
+```bash
+cortex init
+```
+
+2. **Edit Configuration**:
+
+```bash
+cortex setup
+```
+
+3. **Start the Shell** (most common usage):
+
+```bash
+cortex dev
+```
+
+4. **Start the Dashboard**:
+
+```bash
+cortex web
+```
+
+5. **Start Background Daemon**:
+
+```bash
+cortex daemon
+```
+
+6. **Start Voice Assistant**:
+
+```bash
+cortex voice
+```
+
+## Quick Start
+
+CORTEX comes with a simple CLI tool to get you started:
+
+```bash
+cortex init      # create initial config
+cortex setup     # edit config
+cortex dev       # start shell
+cortex web       # start dashboard
+cortex daemon    # start background daemon
+cortex voice     # start voice assistant
+```
+
+Create an alias in your shell configuration to use the full path:
+
+```bash
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## Usage
+
+### Commands
+
+| Command          | Description |
+|------------------|-------------|
+| `/help`          | Show all commands |
+| `/whoami`        | Show persona |
+| `/status`        | Memory + system stats |
+| `/model`         | List Ollama models or show current brain model |
+| `/say <text>`    | Speak through the voice engine |
+| `/voice`         | Report voice engine status |
+| `/remind <spec> <text>` | Set a reminder: "in 30 minutes X", "at 14:00 X", "tomorrow at 09:00 X" |
+| `/reminders`     | List pending reminders |
+| `/remind cancel <id>` | Cancel a reminder |
+| `/semantic <query>` | Semantic search across all memory |
+| `/recall <query>` | Search past conversations |
+| `/forget <query>` | Forget messages matching query |
+| `/facts`         | List distilled facts |
+| `/fact del <id>` | Permanently delete fact `id` |
+| `/dream`         | Consolidate + dedupe stored facts |
+| `/journal`       | Show CORTEX's life story |
+| `/prefer <key> <val>` | Record a preference |
+| `/allow <type>`  | Allow a tool type for this session |
+| `/permissions`   | Show the tool permission policy |
+| `/reindex`       | Rebuild the embedding index |
+| `/export [dir]`  | Export all memory to JSON |
+| `/import <file>` | Import a JSON memory bundle |
+| `/backup`        | Snapshot the SQLite database |
+| `/clear`         | Reset current session |
+| `/exit`          | Leave |
+
+### Running Modes
+
+| Mode | What it does |
+|------|-------------|
+| `dev` | Interactive TUI with streaming markdown, commands, and TTS on replies |
+| `web` | Dashboard only at `127.0.0.1:4040` — view memory, search, manage reminders |
+| `daemon` | Headless background process — web dashboard, proactive voice (speaks when idle or reminded), and scheduled reminders. Logs to `~/.consciousness/daemon.log`, PID file at `~/.consciousness/daemon.pid`. Press Ctrl+C or `kill $(cat ~/.consciousness/daemon.pid)` to stop. |
+| `voice` | Continuous voice loop — listens via microphone (ffmpeg + ALSA), transcribes with STT, responds through the brain, and speaks replies via TTS. Press Ctrl+C to stop. |
+
+## Configuration
+
+Edit `cortex.json` with your preferences:
+
+```json
+{
+  "data_dir": "~/.consciousness",
+  "brain": {
+    "engine": "opencode",
+    "model": "inherit",
+    "server_timeout_ms": 60000,
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "",
+    "ollama_url": "http://127.0.0.1:11434"
+  },
+  "memory": {
+    "episodic": true,
+    "semantic": true,
+    "recall_on_start": true,
+    "recall_messages": 40,
+    "max_recall_chars": 4000,
+    "max_fact_chars": 1500,
+    "semantic_recall": true,
+    "embed_on_digest": true
+  },
+  "embeddings": {
+    "enabled": true,
+    "engine": "transformers",
+    "model": "Xenova/all-MiniLM-L6-v2"
+  },
+  "reminders": {
+    "enabled": true,
+    "check_interval_ms": 15000,
+    "notify": "both"
+  },
+  "permissions": {
+    "auto_allow": ["read", "ls", "grep", "glob", "webfetch", "bash:read"],
+    "auto_deny": ["write", "edit"],
+    "ask": false
+  },
+  "voice": {
+    "tts_engine": "auto",
+    "stt_engine": "off"
+  },
+  "security": {
+    "encryption": false
+  },
+  "tui": {
+    "enabled": true,
+    "history_file": "~/.consciousness/history",
+    "max_history": 500
+  },
+  "proactive": {
+    "enabled": true,
+    "idle_minutes": 10,
+    "cooldown_minutes": 30,
+    "check_interval_ms": 30000
+  },
+  "web": {
+    "enabled": true,
+    "port": 4040
+  },
+  "shell": {
+    "prompt": "you > ",
+    "welcome_message": true,
+    "colors": true
+  }
+}
+```
+
+### Key Configuration Options
+
+- **brain.engine**: Choose between "opencode", "openai", "anthropic", "ollama", or "mock"
+- **brain.model**: Use "inherit" to follow the persona's preferences, or set a specific model
+- **embeddings.engine**: "transformers" (offline), "ollama" (local), "openai", or "off"
+- **security.encryption**: Enable AES-256-GCM encryption for data at rest
+
 ## Architecture
 
 ```
@@ -44,83 +248,25 @@ User <-> Shell (TUI) <-> Consciousness Core <-> Brain (pluggable)
         Semantic engine (facts + journal) + Vector index (embeddings)
 ```
 
-- **Brain layer**: pluggable adapters. Default is the opencode server via `@opencode-ai/sdk`; set `brain.engine` to `openai`, `anthropic`, `ollama`, or `mock`.
-- **Memory core**: hybrid local-first — SQLite for full episodic history; facts distilled into FTS5; a vector index adds similarity search over messages and facts.
-- **Embeddings**: offline by default (`transformers`), no API key. The model downloads once on first use and is cached.
-- **Reminders**: `ReminderEngine` polls SQLite and fires due reminders through the terminal, desktop notifications, and TTS.
-- **Tools**: `PermissionPolicy` auto-allows read-only tools from `cortex.json` and denies the rest. Add per-session exceptions with `/allow <type>`.
-- **Encryption**: set `security.encryption: true` to transparently AES-256-GCM-encrypt message/fact/journal contents at rest (key in `CORTEX_KEY` env or a 0600 keyfile).
-- **Privacy**: conversations and memories stay local under `~/.consciousness/` and are git-ignored. Only code, config, and persona are committed.
+- **Brain layer**: Pluggable adapters (opencode, OpenAI, Anthropic, Ollama, Mock)
+- **Memory core**: Hybrid system with SQLite for conversations, FTS5 for facts, and vector search for semantic recall
+- **Embeddings**: Offline by default via transformers.js, with fallback to Ollama or OpenAI
+- **Proactivity**: Speaks when idle or when reminders fire
+- **Voice**: Pluggable TTS/STT engines with auto-detection
+- **Security**: Optional AES-256-GCM encryption for sensitive data
+- **Privacy**: All conversations and memories are local under `~/.consciousness/`
 
-## Run
+## Development
+
+For development, you can run:
 
 ```bash
-bun install
-bun run dev        # interactive TUI shell
-bun run web        # dashboard only (set web.enabled: true in cortex.json)
-bun run daemon     # background daemon: web + proactive voice + reminders
-bun run voice      # voice assistant mode: listen, speak, respond
-```
-
-### Running modes
-
-| Mode | What it does |
-|------|-------------|
-| `dev` | Interactive TUI with streaming markdown, commands, and TTS on replies |
-| `web` | Dashboard only at `127.0.0.1:4040` — view memory, search, manage reminders |
-| `daemon` | Headless background process — web dashboard, proactive voice (speaks when idle or reminded), and scheduled reminders. Logs to `~/.consciousness/daemon.log`, PID file at `~/.consciousness/daemon.pid`. Press Ctrl+C or `kill $(cat ~/.consciousness/daemon.pid)` to stop. |
-| `voice` | Continuous voice loop — listens via microphone (ffmpeg + ALSA), transcribes with STT, responds through the brain, and speaks replies via TTS. Press Ctrl+C to stop. |
-
-## Commands
-
-| Command          | Description |
-| ---------------- | ----------- |
-| `/recall q`      | Search past conversations (semantic when embeddings are on) |
-| `/semantic q`    | Semantic memory search with similarity scores |
-| `/forget q`      | Forget messages matching query |
-| `/facts`         | List distilled facts |
-| `/facts del i`   | Permanently delete fact `i` |
-| `/dream`         | Consolidate + dedupe stored facts |
-| `/journal`       | Show CORTEX's life story |
-| `/prefer k v`    | Record a preference |
-| `/remind spec`   | Set a reminder: `in 30 minutes X`, `at 14:00 X`, `tomorrow at 09:00 X` |
-| `/reminders`     | List pending reminders |
-| `/remind cancel i` | Cancel reminder `i` |
-| `/say text`      | Speak through the voice engine |
-| `/voice`         | Report voice engine status |
-| `/allow type`    | Allow a tool type for this session |
-| `/permissions`   | Show the tool permission policy |
-| `/reindex`       | Rebuild the embedding index |
-| `/export [dir]`  | Export all memory to JSON |
-| `/import file`   | Import a JSON memory bundle |
-| `/backup`        | Snapshot the SQLite database |
-| `/clear`         | Reset current session |
-| `/whoami`        | Show persona |
-| `/status`        | Memory + system stats |
-| `/help`          | Show help |
-| `/exit`          | Leave |
-
-## Config
-
-Everything is in `cortex.json`. Notable sections:
-
-```jsonc
-{
-  "brain":   { "engine": "opencode", "model": "inherit" },
-  "embeddings": {
-    "enabled": true,
-    "engine": "transformers",          // transformers | ollama | openai | off
-    "model": "Xenova/all-MiniLM-L6-v2"
-  },
-  "reminders":   { "enabled": true, "notify": "both" },
-  "permissions": {
-    "auto_allow": ["read", "ls", "grep", "glob", "webfetch", "bash:read"],
-    "auto_deny":  ["write", "edit"],
-    "ask": false
-  },
-  "voice": { "tts_engine": "off", "stt_engine": "off" },
-  "security": { "encryption": false }
-}
+bun run dev     # Interactive shell
+bun run web     # Dashboard
+bun run daemon  # Background daemon
+bun run voice   # Voice assistant
+bun run test    # All tests
+bun run typecheck # TypeScript checks
 ```
 
 ## License
