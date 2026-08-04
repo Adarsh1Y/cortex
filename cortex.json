@@ -1,8 +1,9 @@
 {
   "data_dir": "~/.consciousness",
   "brain": {
-    "engine": "opencode",
-    "model": "inherit"
+    "engine": "ollama",
+    "model": "tinyllama:1.1b",
+    "ollama_url": "http://127.0.0.1:11434"
   },
   "memory": {
     "episodic": true,
