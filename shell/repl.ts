@@ -4,6 +4,7 @@ import {
   Conversation,
   MarkdownStream,
   Memory,
+  OllamaBrain,
   PermissionPolicy,
   ProactiveEngine,
   ReminderEngine,
@@ -56,6 +57,7 @@ const HELP = `Commands:
   /backup            snapshot the SQLite database
   /clear             reset the current conversation history
   /whoami            show my persona
+  /model             list Ollama models or show current brain model
   /status            show memory + system stats
   /help              show this help
   /exit              leave`;
@@ -255,6 +257,32 @@ async function main(): Promise<void> {
             `  memory: ${persona.memory_ethic ?? "remembers everything unless asked to forget"}\n`,
         );
         return false;
+      case "/model": {
+        if (config.brain.engine === "ollama") {
+          const ollama = brain as unknown as OllamaBrain;
+          const current = config.brain.model;
+          stdout.write(`  engine: ollama · model: ${current}\n`);
+          stdout.write(`  url: ${config.brain.ollama_url ?? "http://127.0.0.1:11434"}\n`);
+          try {
+            const models = await ollama.listModels();
+            if (models.length === 0) {
+              stdout.write("  no models found — pull one with `ollama pull <name>`\n");
+            } else {
+              stdout.write(`  available (${models.length}):\n`);
+              for (const m of models) {
+                const sizeMB = (m.size / 1024 / 1024).toFixed(0);
+                const marker = m.name === current ? " ◀ current" : "";
+                stdout.write(`    ${m.name} (${sizeMB} MB)${marker}\n`);
+              }
+            }
+          } catch {
+            stdout.write("  could not reach Ollama — is it running?\n");
+          }
+          return false;
+        }
+        stdout.write(`  brain: ${config.brain.engine} · model: ${config.brain.model}\n`);
+        return false;
+      }
       case "/status": {
         const stats = memory.stats();
         const url = (brain as unknown as { url?: string }).url;

@@ -306,6 +306,18 @@ export function startWebServer(
         return json({ facts, messages });
       }
 
+      if (path === "/api/models" && config.brain.engine === "ollama") {
+        const ollamaUrl = config.brain.ollama_url ?? "http://127.0.0.1:11434";
+        try {
+          const res = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/tags`, { signal: AbortSignal.timeout(5000) });
+          if (res.ok) {
+            const data = (await res.json()) as { models?: Array<{ name: string; size: number }> };
+            return json({ models: data.models ?? [], current: config.brain.model });
+          }
+        } catch { /* Ollama unreachable */ }
+        return json({ models: [], current: config.brain.model });
+      }
+
       if (path === "/api/export") {
         const bundle = buildExportBundle(memory, { vectors: opts.vectors });
         return new Response(JSON.stringify(bundle, null, 2), {

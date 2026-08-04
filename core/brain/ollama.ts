@@ -12,11 +12,24 @@ interface OllamaChunk {
   done?: boolean;
 }
 
+interface OllamaModel { name: string; size: number; modified_at: string; }
+interface OllamaListResponse { models: OllamaModel[]; }
+
 /** Local Ollama backend. No API key, runs entirely on your machine. */
 export class OllamaBrain implements Brain {
   readonly name = "ollama";
 
   constructor(private opts: OllamaBrainOptions) {}
+
+  async listModels(): Promise<OllamaModel[]> {
+    const res = await fetch(
+      `${this.opts.url.replace(/\/$/, "")}/api/tags`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    if (!res.ok) throw new Error(`ollama list models failed: ${res.status}`);
+    const data = (await res.json()) as OllamaListResponse;
+    return data.models ?? [];
+  }
 
   async createSession(_title: string): Promise<string> {
     return `ollama-${crypto.randomUUID()}`;
