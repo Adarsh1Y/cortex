@@ -1,0 +1,17 @@
+{
+  "data_dir": "~/.consciousness",
+  "brain": {
+    "engine": "opencode",
+    "model": "inherit"
+  },
+  "memory": {
+    "episodic": true,
+    "semantic": false,
+    "recall_on_start": true,
+    "max_context_turns": 20
+  },
+  "shell": {
+    "prompt": "you > ",
+    "welcome_message": true
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "cortex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CORTEX - consciousness layer for CLI AI agents: persistent memory, personality, and presence",
+  "type": "module",
+  "workspaces": [
+    "core",
+    "shell"
+  ],
+  "scripts": {
+    "dev": "bun run shell/src/repl.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

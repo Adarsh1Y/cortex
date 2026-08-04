@@ -1,0 +1,22 @@
+# CORTEX runtime data - never commit conversations or memories
+.consciousness/
+*.db
+*.db-journal
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.bun/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
