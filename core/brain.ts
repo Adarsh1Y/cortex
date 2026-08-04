@@ -10,6 +10,7 @@ export interface PromptOptions {
 export interface Brain {
   createSession(title: string): Promise<string>;
   prompt(opts: PromptOptions): Promise<string>;
+  analyze(text: string, system: string): Promise<string>;
   close(): void;
 }
 
@@ -71,6 +72,24 @@ export class OpenCodeBrain implements Brain {
     });
 
     return pending;
+  }
+
+  /**
+   * Run a one-off analysis call in a throwaway session. Used for memory
+   * extraction and consolidation so the conversation history stays clean.
+   */
+  async analyze(text: string, system: string): Promise<string> {
+    const sessionId = await this.createSession("cortex-analysis");
+    try {
+      const reply = await this.prompt({ sessionId, text, system });
+      return reply;
+    } finally {
+      try {
+        await this.client.session.delete({ path: { id: sessionId } });
+      } catch {
+        // non-fatal: leave the session behind
+      }
+    }
   }
 
   private ensureStream(): void {

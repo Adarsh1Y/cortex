@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "dev": "bun run shell/repl.ts",
+    "web": "bun run shell/web.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

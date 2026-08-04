@@ -1,9 +1,10 @@
 import type { CortexConfig } from "./config";
 import type { Memory } from "./memory";
 import type { Persona } from "./persona";
-import { buildSystemPrompt } from "./persona";
+import { buildSystemPrompt, type PromptContext } from "./persona";
 import { buildRecallBlock } from "./recall";
 import type { Brain } from "./brain";
+import { consolidateFacts, extractDigest, factsToContext, journalToContext, type SessionDigest } from "./semantic";
 
 export interface ConversationOptions {
   config: CortexConfig;
@@ -43,7 +44,21 @@ export class Conversation {
       maxChars: config.memory.max_recall_chars,
       excludeSessionId: this.sessionId,
     });
-    const system = buildSystemPrompt(persona, preferences, recallBlock);
+    const factsBlock = config.memory.semantic
+      ? factsToContext(memory.searchFacts(text), config.memory.max_fact_chars)
+      : "";
+    const journalBlock = config.memory.semantic
+      ? journalToContext(memory.latestJournal(3))
+      : "";
+
+    const context: PromptContext = {
+      persona,
+      preferences,
+      recallBlock,
+      factsBlock,
+      journalBlock,
+    };
+    const system = buildSystemPrompt(context);
 
     const reply = await brain.prompt({
       sessionId: this.openCodeSessionId,
@@ -58,5 +73,37 @@ export class Conversation {
 
   async clear(): Promise<number> {
     return this.opts.memory.resetSession(this.sessionId);
+  }
+
+  /**
+   * End-of-session reflection: distill the conversation into durable facts and
+   * a journal entry for CORTEX's life story. Best-effort; never throws.
+   */
+  async digest(): Promise<SessionDigest | null> {
+    const { memory, brain, config } = this.opts;
+    if (!config.memory.semantic) return null;
+
+    const messages = memory.getMessages(this.sessionId);
+    if (messages.length === 0) return null;
+
+    const transcript = messages
+      .map((m) => `${m.role === "user" ? "USER" : "CORTEX"}: ${m.content}`)
+      .join("\n");
+
+    const digest = await extractDigest(brain, transcript);
+    let learned = 0;
+    for (const fact of digest.facts) {
+      memory.addFact(fact.text, fact.category, this.sessionId);
+      learned++;
+    }
+    if (digest.journal) {
+      memory.addJournal(digest.journal, this.sessionId);
+    }
+
+    const total = memory.stats().facts;
+    if (total >= 25) {
+      await consolidateFacts(brain, memory);
+    }
+    return digest;
   }
 }

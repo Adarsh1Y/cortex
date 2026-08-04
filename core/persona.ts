@@ -18,6 +18,14 @@ export interface Preference {
   value: string;
 }
 
+export interface PromptContext {
+  persona: Persona;
+  preferences: Preference[];
+  recallBlock: string;
+  factsBlock?: string;
+  journalBlock?: string;
+}
+
 export function loadPersona(path: string): Persona {
   if (!existsSync(path)) {
     throw new Error(`persona file not found: ${path}`);
@@ -25,11 +33,8 @@ export function loadPersona(path: string): Persona {
   return JSON.parse(readFileSync(path, "utf8")) as Persona;
 }
 
-export function buildSystemPrompt(
-  persona: Persona,
-  preferences: Preference[],
-  recallBlock: string,
-): string {
+export function buildSystemPrompt(ctx: PromptContext): string {
+  const { persona, preferences } = ctx;
   const lines: string[] = [];
 
   lines.push(
@@ -55,8 +60,16 @@ export function buildSystemPrompt(
     );
   }
 
-  if (recallBlock.trim().length > 0) {
-    lines.push("", "## Recall from your past sessions", recallBlock.trim());
+  if (ctx.factsBlock?.trim()) {
+    lines.push("", "## What you know (distilled memory)", ctx.factsBlock.trim());
+  }
+
+  if (ctx.journalBlock?.trim()) {
+    lines.push("", "## Your life story (recent)", ctx.journalBlock.trim());
+  }
+
+  if (ctx.recallBlock.trim().length > 0) {
+    lines.push("", "## Recall from your past sessions", ctx.recallBlock.trim());
   }
 
   return lines.join("\n");

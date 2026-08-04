@@ -6,12 +6,22 @@
   },
   "memory": {
     "episodic": true,
-    "semantic": false,
+    "semantic": true,
     "recall_on_start": true,
     "max_context_turns": 20
   },
+  "proactive": {
+    "enabled": true,
+    "idle_minutes": 10,
+    "cooldown_minutes": 30
+  },
+  "web": {
+    "enabled": false,
+    "port": 4040
+  },
   "shell": {
     "prompt": "you > ",
-    "welcome_message": true
+    "welcome_message": true,
+    "colors": true
   }
 }

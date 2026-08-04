@@ -15,10 +15,22 @@ export interface CortexConfig {
     recall_on_start: boolean;
     recall_messages: number;
     max_recall_chars: number;
+    max_fact_chars: number;
+  };
+  proactive: {
+    enabled: boolean;
+    idle_minutes: number;
+    cooldown_minutes: number;
+    check_interval_ms: number;
+  };
+  web: {
+    enabled: boolean;
+    port: number;
   };
   shell: {
     prompt: string;
     welcome_message: boolean;
+    colors: boolean;
   };
   persona_path?: string;
 }
@@ -32,14 +44,26 @@ const DEFAULTS: CortexConfig = {
   },
   memory: {
     episodic: true,
-    semantic: false,
+    semantic: true,
     recall_on_start: true,
     recall_messages: 40,
     max_recall_chars: 4000,
+    max_fact_chars: 1500,
+  },
+  proactive: {
+    enabled: true,
+    idle_minutes: 10,
+    cooldown_minutes: 30,
+    check_interval_ms: 30_000,
+  },
+  web: {
+    enabled: false,
+    port: 4040,
   },
   shell: {
     prompt: "you > ",
     welcome_message: true,
+    colors: true,
   },
 };
 

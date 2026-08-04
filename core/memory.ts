@@ -18,10 +18,29 @@ export interface SessionRow {
   created_at: number;
 }
 
+export interface FactRow {
+  id: number;
+  category: string;
+  text: string;
+  source_session: string | null;
+  created_at: number;
+  updated_at: number;
+  active: number;
+}
+
+export interface JournalRow {
+  id: number;
+  summary: string;
+  session_id: string | null;
+  created_at: number;
+}
+
 export interface MemoryStats {
   sessions: number;
   messages: number;
   preferences: number;
+  facts: number;
+  journal: number;
 }
 
 export class Memory {
@@ -51,6 +70,24 @@ export class Memory {
         value TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS facts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL DEFAULT 'fact',
+        text TEXT NOT NULL,
+        source_session TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE INDEX IF NOT EXISTS idx_facts_category ON facts(category);
+      CREATE INDEX IF NOT EXISTS idx_facts_active ON facts(active);
+      CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(fact_id, text, tokenize='porter');
+      CREATE TABLE IF NOT EXISTS journal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        summary TEXT NOT NULL,
+        session_id TEXT,
+        created_at INTEGER NOT NULL
+      );
     `);
   }
 
@@ -71,6 +108,19 @@ export class Memory {
       )
       .run(sessionId, role, content, Date.now());
     return Number(res.lastInsertRowid);
+  }
+
+  listSessions(limit = 100): SessionRow[] {
+    return this.db
+      .query("SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?")
+      .all(limit) as SessionRow[];
+  }
+
+  countMessages(sessionId: string): number {
+    const row = this.db
+      .query("SELECT COUNT(*) AS c FROM messages WHERE session_id = ?")
+      .get(sessionId) as { c: number };
+    return row.c;
   }
 
   getMessages(sessionId: string, limit?: number): MessageRow[] {
@@ -137,11 +187,106 @@ export class Memory {
       .run(key, value, Date.now());
   }
 
+  // ---------- facts (semantic memory) ----------
+
+  addFact(text: string, category = "fact", sourceSession?: string): number {
+    const now = Date.now();
+    const res = this.db
+      .query(
+        "INSERT INTO facts (category, text, source_session, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(category, text, sourceSession ?? null, now, now);
+    const id = Number(res.lastInsertRowid);
+    this.db.query("INSERT INTO facts_fts (fact_id, text) VALUES (?, ?)").run(id, text);
+    return id;
+  }
+
+  updateFact(id: number, text: string, category?: string): void {
+    const now = Date.now();
+    if (category) {
+      this.db
+        .query("UPDATE facts SET text = ?, category = ?, updated_at = ? WHERE id = ?")
+        .run(text, category, now, id);
+    } else {
+      this.db
+        .query("UPDATE facts SET text = ?, updated_at = ? WHERE id = ?")
+        .run(text, now, id);
+    }
+    this.db.query("UPDATE facts_fts SET text = ? WHERE fact_id = ?").run(text, id);
+  }
+
+  setFactActive(id: number, active: boolean): void {
+    this.db
+      .query("UPDATE facts SET active = ?, updated_at = ? WHERE id = ?")
+      .run(active ? 1 : 0, Date.now(), id);
+  }
+
+  deleteFact(id: number): void {
+    this.db.query("DELETE FROM facts_fts WHERE fact_id = ?").run(id);
+    this.db.query("DELETE FROM facts WHERE id = ?").run(id);
+  }
+
+  listFacts(activeOnly = true, limit = 200): FactRow[] {
+    const where = activeOnly ? "WHERE active = 1" : "";
+    return this.db
+      .query(`SELECT * FROM facts ${where} ORDER BY updated_at DESC LIMIT ?`)
+      .all(limit) as FactRow[];
+  }
+
+  searchFacts(query: string, limit = 5): FactRow[] {
+    const words = (query.match(/[a-zA-Z0-9_]{2,}/g) ?? []).slice(0, 8);
+    if (words.length === 0) return this.listFacts(true, limit);
+    try {
+      const rows = this.db
+        .query(
+          `SELECT f.id, f.category, f.text, f.source_session, f.created_at, f.updated_at, f.active
+           FROM facts_fts JOIN facts f ON f.id = facts_fts.fact_id
+           WHERE facts_fts MATCH ? AND f.active = 1
+           ORDER BY rank LIMIT ?`,
+        )
+        .all(words.join(" OR "), limit) as FactRow[];
+      if (rows.length > 0) return rows;
+    } catch {
+      // FTS query rejected; fall through to a LIKE scan
+    }
+    return this.db
+      .query(
+        "SELECT * FROM facts WHERE active = 1 AND text LIKE ? ORDER BY updated_at DESC LIMIT ?",
+      )
+      .all(`%${words[0]}%`, limit) as FactRow[];
+  }
+
+  // ---------- journal (life story / self-model) ----------
+
+  addJournal(summary: string, sessionId?: string): number {
+    const res = this.db
+      .query(
+        "INSERT INTO journal (summary, session_id, created_at) VALUES (?, ?, ?)",
+      )
+      .run(summary, sessionId ?? null, Date.now());
+    return Number(res.lastInsertRowid);
+  }
+
+  latestJournal(limit = 5): JournalRow[] {
+    return this.db
+      .query("SELECT * FROM journal ORDER BY id DESC LIMIT ?")
+      .all(limit) as JournalRow[];
+  }
+
+  deleteJournal(id: number): void {
+    this.db.query("DELETE FROM journal WHERE id = ?").run(id);
+  }
+
   stats(): MemoryStats {
-    const sessions = this.db.query("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
-    const messages = this.db.query("SELECT COUNT(*) AS c FROM messages").get() as { c: number };
-    const preferences = this.db.query("SELECT COUNT(*) AS c FROM preferences").get() as { c: number };
-    return { sessions: sessions.c, messages: messages.c, preferences: preferences.c };
+    const count = (t: string) =>
+      (this.db.query(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c;
+    return {
+      sessions: count("sessions"),
+      messages: count("messages"),
+      preferences: count("preferences"),
+      facts: count("facts"),
+      journal: count("journal"),
+    };
   }
 
   close(): void {
